@@ -110,31 +110,63 @@ int module_start(SceSize args, void *argp){
 		return SCE_KERNEL_START_NO_RESIDENT;
 	}
 
-	moduleId = ksceKernelSearchModuleByName("SceCtrl");
-	if(moduleId >= 0){
+	tai_module_info_t info;
+	info.size = sizeof(info);
 
+	if(taiGetModuleInfoForKernel(0x10005, "SceCtrl", &info) < 0){
+		return SCE_KERNEL_START_NO_RESIDENT;
+	}
+
+	SceUInt32 ctrl_patch_offset = 0xDEADBEEF;
+
+	switch(info.module_nid){
+	case 0x6E35DC01: // special one
+		ctrl_patch_offset = 0x11C8;
+		break;
+	case 0x3BAF0220: // 3.600.011
+		ctrl_patch_offset = 0x10B0;
+		break;
+	default:
+		ksceDebugPrintf("Unknown SceCtrl fingerprint 0x%08X\n", info.module_nid);
+		break;
+	}
+
+	if(ctrl_patch_offset == 0xDEADBEEF){
+		return SCE_KERNEL_START_NO_RESIDENT;
+	}
+
+	{
+		void *patch_point;
 		void *ctrl_context;
 
-		module_get_offset(SCE_GUID_KERNEL_PROCESS_ID, moduleId, 1, 0x10, (uintptr_t *)&ctrl_context);
+		module_get_offset(SCE_GUID_KERNEL_PROCESS_ID, info.modid, 0, ctrl_patch_offset, (uintptr_t *)&patch_point);
+		module_get_offset(SCE_GUID_KERNEL_PROCESS_ID, info.modid, 1, 0x10, (uintptr_t *)&ctrl_context);
 
 		ScePVoid pVirtualControllerDriver = *(ScePVoid *)(ctrl_context + 0xAB0);
 		if(pVirtualControllerDriver == NULL){
 			return SCE_KERNEL_START_NO_RESIDENT;
 		}
 
-		taiInjectDataForKernel(SCE_GUID_KERNEL_PROCESS_ID, moduleId, 0, 0x10B0, (char[4]){0x00, 0xF0, 0xCA, 0x84}, 4);
+		char patch_store[4];
+
+		memcpy(patch_store, patch_point, sizeof(patch_store));
+
+		patch_store[0] &= ~0x40;
+
+		taiInjectDataForKernel(SCE_GUID_KERNEL_PROCESS_ID, info.modid, 0, ctrl_patch_offset, patch_store, sizeof(patch_store));
 
 		readButtons = *(ScePVoid *)(pVirtualControllerDriver);
 		ksceKernelCpuUnrestrictedMemcpy(pVirtualControllerDriver, (ScePVoid[]){readButtons_hook}, 4);
 	}
 
-
 	moduleId = ksceKernelSearchModuleByName("SceBt");
 
+	// 0x199C8
 	SceBt_sub_22999C8_hook_uid = taiHookFunctionOffsetForKernel(KERNEL_PID,
 		&SceBt_sub_22999C8_ref, moduleId, 0,
 		0x22999C8 - 0x2280000, 1, SceBt_sub_22999C8_hook_func);
 
+	// 0x147E4
 	SceBt_sub_22947E4_hook_uid = taiHookFunctionOffsetForKernel(KERNEL_PID,
 		&SceBt_sub_22947E4_ref, moduleId, 0,
 		0x22947E4 - 0x2280000, 1, SceBt_sub_22947E4_hook_func);
