@@ -124,6 +124,7 @@ int module_start(SceSize args, void *argp){
 		ctrl_patch_offset = 0x11C8;
 		break;
 	case 0x3BAF0220: // 3.600.011
+	case 0xE8E8B206: // 3.720.011
 		ctrl_patch_offset = 0x10B0;
 		break;
 	default:
